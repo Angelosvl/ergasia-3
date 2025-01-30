@@ -1,1 +1,146 @@
+//SERVER
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+#define PORT 8080
+#define MAX_PRODUCTS 20
+#define MAX_CLIENTS 5
+
+// Domi gia thn apothikeusi dedomenwn proiontos
+typedef struct {
+    char description[50];
+    int price;
+    int item_count;
+    int request_count;
+    int sold_count;
+    char unsatisfied_clients[100][50];
+    int unsatisfied_count;
+} Product;
+
+Product catalog[MAX_PRODUCTS];
+
+//Sinartisi gia thn arxikopoiisi tou katalogou prointos
+void initialize_catalog() {
+    for (int i = 0; i < MAX_PRODUCTS; i++) {
+        sprintf(catalog[i].description, "Product %d", i);
+        catalog[i].price = (i + 1) * 10;
+        catalog[i].item_count = 2;
+        catalog[i].request_count = 0;
+        catalog[i].sold_count = 0;
+        catalog[i].unsatisfied_count = 0;
+    }
+}
+
+//Sinartisi gia tin diaxeirisi ton aitimaton pelaton
+void handle_client(int client_sock) {
+    char buffer[256];
+    int product_id;
+    read(client_sock, &product_id, sizeof(int));
+    
+    catalog[product_id].request_count++;
+    sleep(1);  //prosomiosi xronou epeksergasias paragelion
+
+    if (catalog[product_id].item_count > 0) {
+        catalog[product_id].item_count--;
+        catalog[product_id].sold_count++;
+        sprintf(buffer, "Order successful: %s, Price: %d", catalog[product_id].description, catalog[product_id].price);
+    } else {
+        sprintf(buffer, "Order failed: %s is out of stock", catalog[product_id].description);
+        sprintf(catalog[product_id].unsatisfied_clients[catalog[product_id].unsatisfied_count++], "Client-%d", client_sock);
+    }
+    write(client_sock, buffer, strlen(buffer) + 1);
+    close(client_sock);
+    exit(0);
+}
+
+//Sinartisi gia thn dimiourgia kai tin ektuposi tis anaforas poliseon
+void generate_report() {
+    printf("\n--- Sales Report ---\n");
+    int total_orders = 0, successful_orders = 0, failed_orders = 0, total_revenue = 0;
+    
+    for (int i = 0; i < MAX_PRODUCTS; i++) {
+        total_orders += catalog[i].request_count;
+        successful_orders += catalog[i].sold_count;
+        failed_orders += catalog[i].request_count - catalog[i].sold_count;
+        total_revenue += catalog[i].sold_count * catalog[i].price;
+        printf("%s - Requests: %d, Sold: %d, Failed: %d\n", catalog[i].description, catalog[i].request_count, catalog[i].sold_count, catalog[i].unsatisfied_count);
+    }
+    printf("Total Orders: %d, Successful: %d, Failed: %d, Revenue: %d\n", total_orders, successful_orders, failed_orders, total_revenue);
+}
+
+int main() {
+    int server_sock, client_sock;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t addr_size;
+
+    initialize_catalog();  //Proetimasia tou katalogou prointon
+
+
+    //Dimiourgia server socket
+    server_sock = socket(AF_INET, SOCK_STREAM, 0);
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(PORT);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+
+    //Syndei tin ypodoxi me tin diefthinsi kai ti thira
+    bind(server_sock, (struct sockaddr*)&server_addr, sizeof(server_addr));
+    listen(server_sock, MAX_CLIENTS);
+
+    printf("Server listening on port %d...\n", PORT);
+
+    //Apodexetai kai xeirizetai tis syndesis pelaton
+    for (int i = 0; i < MAX_CLIENTS * 10; i++) {
+        addr_size = sizeof(client_addr);
+        client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &addr_size);
+        if (fork() == 0) {   //Dimiourgei mia nea diergasia paidi gia kathe pelati ksexorista
+            close(server_sock);
+            handle_client(client_sock);
+        }
+        close(client_sock);
+    }
+
+    while (wait(NULL) > 0);
+    generate_report();
+    close(server_sock);
+    return 0;
+}
+
+//CLIENT
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#define PORT 8080
+#define SERVER_IP "127.0.0.1"
+
+void send_order(int client_id) {
+    int sock;
+    struct sockaddr_in server_addr;
+    char buffer[256];
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(PORT);
+    inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr);
+
+    connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr));
+
+    int product_id = rand() % 20;
+    write(sock, &product_id, sizeof(int));
+    read(sock, buffer, sizeof(buffer));
+    printf("Client %d: %s\n", client_id, buffer);
+
+    close(sock);
+}
+
+int main() {
+    srand(time(NULL));
+    for (int i = 0; i < 10; i++) {
+        send_order(i);
+        sleep(1);
+    }
+    return 0;
+}
 
